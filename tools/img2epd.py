@@ -21,7 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 
 WIDTH = 800
 VISIBLE_H = 480
@@ -37,12 +37,54 @@ PALETTE = [
 COLOR_NAMES = ["black", "white", "yellow", "red"]
 
 
+def edge_color(strip: Image.Image) -> tuple:
+    """Average color of an edge strip, for filling the adjacent bar."""
+    r, g, b = strip.resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    return (r, g, b)
+
+
+# perceptual luminance weights: the eye is most sensitive to green, least to blue
+W_R, W_G, W_B = 0.30, 0.59, 0.11
+
+
 def quantize(img: Image.Image, dither: bool) -> Image.Image:
-    pal_img = Image.new("P", (1, 1))
+    """Floyd-Steinberg with serpentine scanning and perceptual color distance."""
+    w, h = img.size
+    buf = [list(p) for p in img.getdata()]
+    idx = bytearray(w * h)
+    for y in range(h):
+        serp = y & 1
+        xs = range(w - 1, -1, -1) if serp else range(w)
+        for x in xs:
+            i = y * w + x
+            p = buf[i]
+            r = min(255.0, max(0.0, p[0]))
+            g = min(255.0, max(0.0, p[1]))
+            b = min(255.0, max(0.0, p[2]))
+            best, bd = 0, 1e18
+            for k, (pr, pg, pb) in enumerate(PALETTE):
+                dr, dg, db = r - pr, g - pg, b - pb
+                d = W_R * dr * dr + W_G * dg * dg + W_B * db * db
+                if d < bd:
+                    bd, best = d, k
+            idx[i] = best
+            if dither:
+                pr, pg, pb = PALETTE[best]
+                er, eg, eb = r - pr, g - pg, b - pb
+                fwd = -1 if serp else 1
+                for dy, dx, wt in ((0, fwd, 7), (1, -fwd, 3), (1, 0, 5), (1, fwd, 1)):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= nx < w and ny < h:
+                        q = buf[ny * w + nx]
+                        f = wt / 16.0
+                        q[0] += er * f
+                        q[1] += eg * f
+                        q[2] += eb * f
+    out = Image.new("P", (w, h))
+    out.putdata(list(idx))
     flat = [c for rgb in PALETTE for c in rgb]
-    pal_img.putpalette(flat + flat[:3] * (256 - len(PALETTE)))
-    mode = Image.Dither.FLOYDSTEINBERG if dither else Image.Dither.NONE
-    return img.convert("RGB").quantize(palette=pal_img, dither=mode)
+    out.putpalette(flat + flat[:3] * (256 - len(PALETTE)))
+    return out
 
 
 def pack_rows(indexed: Image.Image) -> bytes:
@@ -92,9 +134,17 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    out_path = args.out or args.image.with_suffix(".bin")
+    out_path = args.out
+    if out_path is None:
+        # inside an input/ dir, default to the sibling output/ dir
+        if args.image.parent.name == "input":
+            out_dir = args.image.parent.parent / "output"
+            out_dir.mkdir(exist_ok=True)
+            out_path = out_dir / (args.image.stem + ".bin")
+        else:
+            out_path = args.image.with_suffix(".bin")
 
-    img = Image.open(args.image).convert("RGB")
+    img = ImageOps.exif_transpose(Image.open(args.image)).convert("RGB")
     if args.rotate:
         img = img.rotate(-args.rotate, expand=True)
     if img.size != (WIDTH, VISIBLE_H):
@@ -102,8 +152,21 @@ def main() -> None:
         w, h = round(img.width * scale), round(img.height * scale)
         print(f"fitting {img.width}x{img.height} -> {w}x{h} on white {WIDTH}x{VISIBLE_H}")
         scaled = img.resize((w, h), Image.Resampling.LANCZOS)
-        img = Image.new("RGB", (WIDTH, VISIBLE_H), (0xFF, 0xFF, 0xFF))
-        img.paste(scaled, ((WIDTH - w) // 2, (VISIBLE_H - h) // 2))
+        canvas = Image.new("RGB", (WIDTH, VISIBLE_H), (0xFF, 0xFF, 0xFF))
+        x0, y0 = (WIDTH - w) // 2, (VISIBLE_H - h) // 2
+        strip = 16  # edge strip whose average color fills the adjacent bar
+        if w < WIDTH:  # pillarbox: bars left/right
+            left = edge_color(scaled.crop((0, 0, strip, h)))
+            right = edge_color(scaled.crop((w - strip, 0, w, h)))
+            canvas.paste(left, (0, 0, x0, VISIBLE_H))
+            canvas.paste(right, (x0 + w, 0, WIDTH, VISIBLE_H))
+        if h < VISIBLE_H:  # letterbox: bars top/bottom
+            top = edge_color(scaled.crop((0, 0, w, strip)))
+            bottom = edge_color(scaled.crop((0, h - strip, w, h)))
+            canvas.paste(top, (0, 0, WIDTH, y0))
+            canvas.paste(bottom, (0, y0 + h, WIDTH, VISIBLE_H))
+        canvas.paste(scaled, (x0, y0))
+        img = canvas
 
     if args.saturation != 1.0:
         img = ImageEnhance.Color(img).enhance(args.saturation)

@@ -10,7 +10,7 @@ use esp_println::println;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static IMAGE: &[u8] = include_bytes!("../photo.bin");
+static IMAGE: &[u8] = include_bytes!("../images/output/photo13.bin");
 
 struct Epd<'d> {
     rst: Output<'d>,
@@ -160,7 +160,7 @@ fn main() -> ! {
     println!("powering on");
     epd.power_on();
     println!("powered on");
-    epd.send_solid_color(Color::Yellow);
+    epd.send_solid_color(Color::White);
     epd.send_image();
     println!("sending image");
     epd.refresh();
