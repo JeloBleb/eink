@@ -3,7 +3,6 @@ target = "xtensa-esp32s3-none-elf"   # always cross-compile for the S3; "none" =
 
 [target.xtensa-esp32s3-none-elf]
 runner = "espflash flash --monitor"  # makes `cargo run` = flash board + open serial monitor
-linker = "/home/teemu/.rustup/toolchains/esp/xtensa-esp-elf/esp-15.2.0_20250920/xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc"
 rustflags = ["-C", "link-arg=-nostartfiles", "-C", "link-arg=-Wl,-Tlinkall.x"]
 
 [unstable]

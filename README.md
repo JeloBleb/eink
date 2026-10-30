@@ -27,6 +27,7 @@ Needs the Xtensa Rust toolchain ([espup](https://github.com/esp-rs/espup)) and
 [espflash](https://github.com/esp-rs/espflash).
 
 ```sh
+. ~/export-esp.sh     # puts the Xtensa linker on PATH (written by espup install)
 cargo run --release   # builds, flashes, and opens the serial monitor
 ```
 
@@ -40,3 +41,7 @@ cargo run --release
 The controller's frame RAM is 800×680 but the visible glass is 800×480, so the
 script pads the frame; `--image-pos` moves the image within it. The firmware
 embeds `photo.bin` at compile time.
+
+## License
+
+MIT
