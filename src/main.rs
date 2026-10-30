@@ -10,7 +10,7 @@ use esp_println::println;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-static IMAGE: &[u8] = include_bytes!("../images/output/photo13.bin");
+static IMAGE: &[u8] = include_bytes!("../photo.bin");
 
 struct Epd<'d> {
     rst: Output<'d>,
